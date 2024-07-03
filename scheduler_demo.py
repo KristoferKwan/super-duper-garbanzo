@@ -11,13 +11,13 @@ from langchain_core.prompts.chat import ChatPromptTemplate
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_community.chat_message_histories import ChatMessageHistory
-from google_calendar import geteventstool, createeventtool
+from google_calendar import geteventstool, createeventtool, updateeventtool
 from datetime import date
 from location import GetCurrentLocationTool
 
 @tool
 def getDate() -> str:
-    """Retrieves the real time date and time. You should use this tool whenever the user tries to schedule an event."""
+    """Retrieves the current day's date. You should use this tool whenever the user tries to create, search, or update and event on their calendar."""
     return date.today()
 
 
@@ -29,6 +29,7 @@ tools = load_tools(
 tools.append(TavilySearchResults())
 tools.append(geteventstool)
 tools.append(createeventtool)
+tools.append(updateeventtool)
 tools.append(getDate)
 tools.append(GetCurrentLocationTool())
 

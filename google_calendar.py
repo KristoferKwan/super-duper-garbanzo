@@ -95,7 +95,7 @@ class GetEventsSchema(BaseModel):
 class ListGoogleCalendarEvents(GoogleCalendarBaseTool):
     name: str = "list_google_calendar_events"
     description: str = (
-        " Use this tool to search for the user's calendar events."
+        " Use this tool to search for the user's calendar events (can also be called users's schedule)."
         " The input must be the start and end datetimes for the search query."
         " Start time is default to the current time. You can also specify the"
         " maximum number of results to return. The output is a JSON list of "
@@ -110,7 +110,7 @@ class ListGoogleCalendarEvents(GoogleCalendarBaseTool):
         end = event['end'].get('dateTime', event['end'].get('date'))
         end = parser.parse(end).astimezone(tz.gettz(timezone)).strftime('%Y/%m/%d %H:%M:%S')
         event_parsed = dict(start=start, end=end)
-        for field in ['summary','description','location','hangoutLink']: # optional: attendees
+        for field in ['id','summary','description','location','hangoutLink']: # optional: attendees
             event_parsed[field] = event.get(field, None)
         return event_parsed
     
@@ -263,6 +263,108 @@ class CreateGoogleCalendarEvent(GoogleCalendarBaseTool):
         raise NotImplementedError("Async version of this tool is not implemented.")
 
 
+# Update event tool
+class UpdateEventSchema(BaseModel):
+    # https://developers.google.com/calendar/api/v3/reference/events/insert
+    event_id : str = Field(
+        description="The event id to update. This can be retrieved from the id field in the event object returned by list_google_calendar_events tool."
+    )
+    # note: modifed the tz desc in the parameters, use local time automatically
+    start_datetime: Optional[str] = Field(
+        description=(
+            " The start datetime for the event in the following format: "
+            ' YYYY-MM-DDTHH:MM:SS, where "T" separates the date and time '
+            " components, "
+            ' For example: "2023-06-09T10:30:00" represents June 9th, '
+            " 2023, at 10:30 AM"
+            "Do not include timezone info as it will be automatically processed."
+        )
+    )
+    end_datetime: Optional[str] = Field(
+        description=(
+            " The end datetime for the event in the following format: "
+            ' YYYY-MM-DDTHH:MM:SS, where "T" separates the date and time '
+            " components, "
+            ' For example: "2023-06-09T10:30:00" represents June 9th, '
+            " 2023, at 10:30 AM"
+            "Do not include timezone info as it will be automatically processed."
+        )
+    )
+    summary: Optional[str] = Field(
+        description="The title of the event."
+    )
+    location: Optional[str] = Field(
+        description="The location of the event."
+    )
+    description: Optional[str] = Field(
+        description="The description of the event. Optional."
+    )
+    timezone: Optional[str] = Field(
+        default="America/Chicago",
+        description="The timezone in TZ Database Name format, e.g. 'America/New_York'"
+    )
+    
+
+class UpdateGoogleCalendarEvent(GoogleCalendarBaseTool):
+    name: str = "update_google_calendar_event"
+    description: str = (
+        " Use this tool to update an existing calendar event in user's primary calendar."
+        " The input can optionally contain the start and end datetime for the event, and"
+        " the title of the event. You can also specify the location and description. If no"
+        " parameters are provided, the event will not be updated."
+    )
+    args_schema: Type[BaseModel] = UpdateEventSchema
+    
+    def _run(
+        self,
+        event_id: str,
+        start_datetime: str = None, 
+        end_datetime: str = None,
+        summary: str = None,
+        location: str = None,
+        description: str = None,
+        timezone: str = "America/Chicago",
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
+        
+        calendar = '52fe3095fadf982fb7b98c6f738320b0effd235826ed493d803627b8144a4045@group.calendar.google.com' # specific calendar id to target
+        event = self.api_resource.events().get(calendarId=calendar, eventId=event_id).execute()
+
+        if start_datetime is not None :
+            start = datetime.strptime(start_datetime, '%Y-%m-%dT%H:%M:%S')
+            start = start.replace(tzinfo=tz.gettz(timezone)).isoformat()
+            event['start']['dateTime'] = start
+        if end_datetime is not None:
+            end = datetime.strptime(end_datetime, '%Y-%m-%dT%H:%M:%S')
+            end = end.replace(tzinfo=tz.gettz(timezone)).isoformat()
+            event['end']['dateTime'] = end
+        if summary is not None:
+            event['summary'] = summary
+
+        if location is not None:
+            event['location'] = location
+        if description is not None:
+            event['description'] = description
+        
+        event = self.api_resource.events().update(calendarId=calendar, eventId=event['id'], body=event).execute()
+        
+        return "Event updated: " + event.get('htmlLink', 'Failed to update event')
+    
+    async def _arun(
+        self,
+        event_id: str,
+        start_datetime: str = None, 
+        end_datetime: str = None,
+        summary: str = None,
+        location: str = None,
+        description: str = None,
+        timezone: str = "America/Chicago",
+        run_manager: Optional[CallbackManagerForToolRun] = None,
+    ) -> str:
+        
+        raise NotImplementedError("Async version of this tool is not implemented.")
+
+
 # Testing Google Calendar tools
 
 credentials = get_gmail_credentials(
@@ -274,9 +376,7 @@ client_secrets_file="./credentials.json",
 calendar_service = build_resource_service(credentials=credentials, service_name='calendar', service_version='v3')
 
 geteventstool = ListGoogleCalendarEvents.from_api_resource(calendar_service)
-print(geteventstool.args)
-
-
+# print(geteventstool.args)
 # start = "2024-01-01T10:30:00"
 # end = "2024-12-31T10:30:00"
 # tool_res = geteventstool.run(tool_input={"start_datetime": start, "end_datetime":end, "max_results":10})
@@ -290,3 +390,5 @@ createeventtool = CreateGoogleCalendarEvent.from_api_resource(calendar_service)
 #     "summary": "Test event"
 #     })
 # print(tool_res)
+
+updateeventtool = UpdateGoogleCalendarEvent.from_api_resource(calendar_service)
